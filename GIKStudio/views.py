@@ -1,8 +1,9 @@
 from django.http import HttpResponse
+from django.shortcuts import render
 
 
 def contact(request):
-    return HttpResponse("hello")
+    return HttpResponse("contact")
 
 
 def price_list(request):

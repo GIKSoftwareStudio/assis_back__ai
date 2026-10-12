@@ -26,7 +26,7 @@ urlpatterns = [
     path("projects/", projects, name='projects'),
     path("services/", services, name='services'),
     path("team/", team, name='team'),
-    path("v1/",include("GIKapp.urls")),
+    path("v1/",include("chat_api.urls")),
 ]
 
 

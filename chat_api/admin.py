@@ -9,3 +9,5 @@ class ChatLogAdmin(admin.ModelAdmin):
     list_display = ("user_id", "role", "created_at", "content")
     list_filter = ('role', 'created_at')
     search_fields = ('user_id', 'content')
+
+

@@ -3,11 +3,12 @@ import time
 # Create your views here.
 import json
 import logging
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import BotConfig, ChatLog
-
+from .agent_tools import AVAILABLE_TOOLS, TOOLS_SCHEMA
+import os
 @csrf_exempt
 async def chat_completions_view(request):
     if request.method != 'POST':
@@ -23,6 +24,8 @@ async def chat_completions_view(request):
             last_message = messages[-1].get('content', '')
             print(f"({model}): {last_message}") # logging is better here i guess
             user_message = last_message
+
+
         if user_message:
             await ChatLog.objects.acreate(
                 user_id = user_id,
@@ -43,17 +46,56 @@ async def chat_completions_view(request):
         }
         full_messages = [system_message] + messages
         client = AsyncOpenAI(
-            base_url="http://localhost:11434/v1",  # for example 
-            api_key="ollama"
+            base_url="http://localhost:20128/v1",  # for example 
+            api_key="sk-68a3586a5873ee84-55ndrh-b4b58c45"
         )
+        MAX_TOOL_CALLS = 4
+        tool_call_count = 0
+        ai_response_text = ""
+        while True:
+            ai_response = await client.chat.completions.create(
+                model="oc/deepseek-v4.1-flash-free",
+                messages=full_messages,
+                temperature=config.temperature,
+                tools=TOOLS_SCHEMA,  
+                tool_choice="auto"
+            )
+            response_message = ai_response.choices[0].message
+            finish_reason = ai_response.choices[0].finish_reason
+            if finish_reason == "tool_calls" and response_message.tool_calls:
+                if tool_call_count >= MAX_TOOL_CALLS:
+                    break
+                tool_call_count += 1
+                full_messages.append(response_message.model_dump())
+                for tool_call in response_message.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args_str = tool_call.function.arguments
+                    tool_call_id = tool_call.id
+                    try:
+                        function_args = json.loads(function_args_str)
+                    except Exception:
+                        function_args = {}
+                    if function_name in AVAILABLE_TOOLS:
+                        try:
+                            function_to_call = AVAILABLE_TOOLS[function_name]
+                            tool_output = function_to_call(**function_args)
+                        except Exception as exec_error:
+                            tool_output = f"Error executing tool {function_name}: {str(exec_error)}"
+                    else:
+                        tool_output = f"Error: Tool '{function_name}' not found."
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": str(tool_output)
+                    })
+                continue
+            else:
+                # استخراج متن نهایی دقیقاً با نام متغیر مورد نظر شما
+                ai_response_text = response_message.content or ""
+                break
         
-        ai_response = await client.chat.completions.create(
-            model = config.model_name,
-            messages=full_messages,
-            temperature=config.temperature
-        )
-        ai_response_text = ai_response.choices[0].message.content
-        await ChatLog.objects.acreate(
+        if ai_response_text:
+            await ChatLog.objects.acreate(
             user_id = user_id,
             role = "assistant",
             content = ai_response_text
@@ -104,7 +146,6 @@ def models_list_view(request):
     return JsonResponse(models_data)
 
 
-        
 
 
 

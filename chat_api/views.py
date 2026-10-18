@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import BotConfig, ChatLog
 from .agent_tools import AVAILABLE_TOOLS, TOOLS_SCHEMA
 import os
+
 @csrf_exempt
 async def chat_completions_view(request):
     if request.method != 'POST':
@@ -17,7 +18,7 @@ async def chat_completions_view(request):
     try:
         body_data = json.loads(request.body.decode('utf-8'))
         messages = body_data.get('messages', [])
-        model = body_data.get('model', 'gen-lang-client-0049376852')
+        model = body_data.get('model', 'openai/gpt-oss-120b')
         user_message = ""
         user_id = "default_user"
         if messages:
@@ -46,15 +47,15 @@ async def chat_completions_view(request):
         }
         full_messages = [system_message] + messages
         client = AsyncOpenAI(
-            base_url="http://localhost:20128/v1",  # for example 
-            api_key="sk-68a3586a5873ee84-55ndrh-b4b58c45"
+            base_url=os.getenv("base_url"), 
+            api_key=os.getenv("api_key")
         )
         MAX_TOOL_CALLS = 4
         tool_call_count = 0
         ai_response_text = ""
         while True:
             ai_response = await client.chat.completions.create(
-                model="oc/deepseek-v4.1-flash-free",
+                model="openai/gpt-oss-120b",
                 messages=full_messages,
                 temperature=config.temperature,
                 tools=TOOLS_SCHEMA,  
@@ -63,12 +64,15 @@ async def chat_completions_view(request):
             response_message = ai_response.choices[0].message
             finish_reason = ai_response.choices[0].finish_reason
             if finish_reason == "tool_calls" and response_message.tool_calls:
+                print("Tool calling detected!")
                 if tool_call_count >= MAX_TOOL_CALLS:
                     break
                 tool_call_count += 1
-                full_messages.append(response_message.model_dump())
+                full_messages.append(response_message.model_dump(exclude_none=True,
+        exclude={"annotations"}))
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
+                    print("Tool called:", function_name)
                     function_args_str = tool_call.function.arguments
                     tool_call_id = tool_call.id
                     try:
@@ -88,7 +92,7 @@ async def chat_completions_view(request):
                         "tool_call_id": tool_call_id,
                         "content": str(tool_output)
                     })
-                continue
+                continue 
             else:
                 # استخراج متن نهایی دقیقاً با نام متغیر مورد نظر شما
                 ai_response_text = response_message.content or ""

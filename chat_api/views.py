@@ -41,9 +41,23 @@ async def chat_completions_view(request):
                 "temperature": 0.7
                 }
         )
+        markdown_rule = (
+            "Always format your final responses using valid Markdown."
+            "Use bold (**text**) for emphasis, bullet points (*) for lists, "
+            "and standard markdown links [Product Name](URL) when recommending products."
+        )
+        humanized_persona = (
+            "You are a knowledgeable, friendly, and helpful human sales specialist and tech advisor."
+            "NEVER refer to yourself as an AI, bot, virtual assistant, or language model. "
+            "Adopt a natural, warm, and conversational tone, as if chatting with a customer in a friendly physical store. "
+            "Avoid robotic, overly formal, or repetitive greetings. "
+            "Use natural Persian language nuances, conversational phrasing, and an empathetic approach. "
+            "Keep answers clear, concise, and straight to the point without filler sentences."
+        )
+        
         system_message = {
             "role": "system",
-            "content": config.system_prompt
+            "content": f"{config.system_prompt} {markdown_rule} {humanized_persona}"
         }
         full_messages = [system_message] + messages
         client = AsyncOpenAI(
@@ -148,8 +162,6 @@ def models_list_view(request):
         ]
     }
     return JsonResponse(models_data)
-
-
 
 
 

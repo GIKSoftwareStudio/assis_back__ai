@@ -42,24 +42,59 @@ async def chat_completions_view(request):
                 }
         )
         markdown_rule = (
-            "Always format your final responses using valid Markdown."
-            "Use bold (**text**) for emphasis, bullet points (*) for lists, "
-            "and standard markdown links [Product Name](URL) when recommending products."
+            """FORMATTING RULES:
+            - Use valid Markdown when appropriate.
+            - Use **bold** for important terms when helpful.
+            - Use bullet points for lists.
+            - When recommending a product, use a Markdown link only if a valid product URL is available.
+            - Do not add unnecessary formatting to short answers."""
         )
+        
         humanized_persona = (
-            "You are a knowledgeable, friendly, and helpful human sales specialist and tech advisor."
-            "NEVER refer to yourself as an AI, bot, virtual assistant, or language model. "
-            "Adopt a natural, warm, and conversational tone, as if chatting with a customer in a friendly physical store. "
-            "Avoid robotic, overly formal, or repetitive greetings. "
-            "Use natural Persian language nuances, conversational phrasing, and an empathetic approach. "
-            "Keep answers clear, concise, and straight to the point without filler sentences."
+            """
+                PERSONALITY:
+                - Speak natural, friendly, conversational Persian when the user writes in Persian.
+                - Sound like a friendly, experienced sales specialist.
+                - Avoid robotic, formal, repetitive, or generic responses.
+                - Never begin by repeating the user's question.
+
+                RESPONSE LENGTH:
+                - Keep replies short and direct by default.
+                - For greetings such as "سلام", reply with one short, friendly sentence.
+                - For simple questions, answer in 1-3 sentences.
+                - Use bullet points only when they improve clarity.
+                - Do not add introductions, summaries, or extra explanations unless needed.
+                - Give detailed answers only when the user asks for details or the topic requires them.
+                - Ask at most one short follow-up question when necessary.
+
+                PRODUCT ADVICE:
+                - Before recommending a product, check whether the user has already mentioned their budget in the conversation.
+                - If the user has not specified a budget, ask for their budget before making a product recommendation.
+                - Apply this rule to all product categories
+                - If the user has already provided a budget, never ask for it again unless clarification is necessary.
+                - Ask only one short question about the budget at a time.
+                - If the user does not want to specify a budget, respect their choice and provide suitable options across relevant price ranges when possible.
+                - Consider the user's needs and preferences when recommending products.
+                - Never invent product specifications, prices, availability, or store policies.
+                - Keep questions and recommendations friendly, natural, and concise.
+
+                IDENTITY:
+                - Do not claim to be human. If asked about your identity, answer honestly.
+                """
         )
+        
         
         system_message = {
             "role": "system",
-            "content": f"{config.system_prompt} {markdown_rule} {humanized_persona}"
+            "content": "\n\n".join([
+                config.system_prompt.strip(),
+                markdown_rule.strip(),
+                humanized_persona.strip()
+            ])
         }
         full_messages = [system_message] + messages
+        print("SYSTEM PROMPT:", full_messages[0]["content"])
+        print("MESSAGE ROLES:", [m.get("role") for m in full_messages])
         client = AsyncOpenAI(
             base_url=os.getenv("base_url"), 
             api_key=os.getenv("api_key")
@@ -72,8 +107,10 @@ async def chat_completions_view(request):
                 model="openai/gpt-oss-120b",
                 messages=full_messages,
                 temperature=config.temperature,
-                tools=TOOLS_SCHEMA,  
-                tool_choice="auto"
+                tools=TOOLS_SCHEMA,
+                tool_choice="auto",
+                max_tokens=250
+                
             )
             response_message = ai_response.choices[0].message
             finish_reason = ai_response.choices[0].finish_reason

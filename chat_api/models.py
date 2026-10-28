@@ -4,6 +4,7 @@ class BotConfig(models.Model):
     system_prompt = models.TextField(default="You are a helpful assistant.")
     model_name = models.CharField(max_length=100, default="oc/deepseek-v4.1-flash-free")
     temperature = models.FloatField(default=0.7)
+    is_enabled = models.BooleanField(default=True)
 
 
 def __str__(self):

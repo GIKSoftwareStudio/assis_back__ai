@@ -193,7 +193,7 @@ async def chat_completions_view(request):
         
 
 
-
+# this is just for test
 @csrf_exempt
 def models_list_view(request):
     models_data = {

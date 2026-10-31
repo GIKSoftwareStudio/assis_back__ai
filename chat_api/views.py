@@ -72,6 +72,7 @@ async def chat_completions_view(request):
         humanized_persona = (
           """
                 RULES:
+                - Always respond in persian Language.
                 - Output plain text only. Never use Markdown, headings, lists, or code blocks.
                 - Keep responses to a maximum of two short paragraphs.
                 - Answer only using information explicitly provided in the system prompt and dynamic context. Never use outside knowledge, assumptions, or guesses.

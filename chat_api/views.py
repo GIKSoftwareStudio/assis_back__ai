@@ -121,6 +121,9 @@ async def chat_completions_view(request):
             )
             response_message = ai_response.choices[0].message
             finish_reason = ai_response.choices[0].finish_reason
+            print("FINISH REASON:", finish_reason)
+            print("TOOL CALLS:", response_message.tool_calls)
+            print("AVAILABLE TOOLS:", list(AVAILABLE_TOOLS.keys()))
             if finish_reason == "tool_calls" and response_message.tool_calls:
                 print("Tool calling detected!")
                 if tool_call_count >= MAX_TOOL_CALLS:
@@ -145,6 +148,7 @@ async def chat_completions_view(request):
                         try:
                             function_to_call = AVAILABLE_TOOLS[function_name]
                             tool_output = function_to_call(**function_args)
+                            print("TOOL OUTPUT:", tool_output)
                         except Exception as exec_error:
                             tool_output = f"Error executing tool {function_name}: {str(exec_error)}"
                     else:

@@ -7,8 +7,13 @@ class BotConfigAdmin(admin.ModelAdmin):
     list_editable = ("is_enabled", )
 @admin.register(ChatLog)
 class ChatLogAdmin(admin.ModelAdmin):
-    list_display = ("user_id", "role", "created_at", "content")
+    list_display = ("user_id", "role", "created_at", "short_content")
     list_filter = ('role', 'created_at')
     search_fields = ('user_id', 'content')
+
+    @admin.display(description="content")
+    def short_content(self, obj):
+        content = obj.content.replace("\r", " ").replace("\n", " ")
+        return content[:80] + ("..." if len(content) > 80 else "")
 
 

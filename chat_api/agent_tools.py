@@ -9,17 +9,10 @@ def _store_api_url(path):
     base_url = (os.getenv("STORE_API_BASE_URL") or "").rstrip("/")
     if not base_url:
         raise ValueError("STORE_API_BASE_URL is not configured")
-    return f"{base_url}/{path.lstrip('/')}"
-
-
-def _store_api_headers():
-    token = os.getenv("STORE_API_TOKEN")
-    if not token:
-        raise ValueError("STORE_API_TOKEN is not configured")
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-    }
+    path = path.lstrip("/")
+    if base_url.lower().endswith("/api") and path.lower().startswith("api/"):
+        path = path[4:]
+    return f"{base_url}/{path}"
 
 
 def get_current_time() -> str:
@@ -55,35 +48,47 @@ def search_products(
     limit: int = 5,
     page: int = 1,
 ) -> str:
-    """Search Laravel assistant products endpoint with server-side filters."""
+    """Search the public products API; apply filters not supported by it locally."""
     try:
-        per_page = max(1, min(int(limit), 50))
+        requested_limit = max(1, min(int(limit), 50))
         page = max(1, int(page))
-        params = {"per_page": per_page, "page": page}
-        if query:
-            params["search"] = query
+        params = {"page": page}
         if category_id is not None:
             params["category_id"] = int(category_id)
+
+        products = []
+        last_page = page
+        max_pages = 10
+        for current_page in range(page, page + max_pages):
+            params["page"] = current_page
+            response = requests.get(
+                _store_api_url("api/products"),
+                params=params,
+                headers={"Accept": "application/json"},
+                timeout=(5, 15),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("products"), list):
+                return "Error: Invalid response from products API."
+            products.extend(payload["products"])
+            meta = payload.get("meta") or {}
+            if not isinstance(meta, dict):
+                return "Error: Invalid pagination data from products API."
+            last_page = int(meta.get("last_page", current_page))
+            if current_page >= last_page:
+                break
+
+        if query:
+            needle = query.casefold()
+            products = [
+                item for item in products
+                if needle in str(item.get("title", "")).casefold()
+            ]
         if min_price is not None:
-            params["min_price"] = float(min_price)
+            products = [item for item in products if float(item.get("price", 0)) >= float(min_price)]
         if max_price is not None:
-            params["max_price"] = float(max_price)
-
-        response = requests.get(
-            _store_api_url("api/assistant/products"),
-            params=params,
-            headers=_store_api_headers(),
-            timeout=(5, 15),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            return "Error: Invalid response from products API."
-
-        # Support Laravel paginator's `data` and a simple `products` response.
-        products = payload.get("products", payload.get("data"))
-        if not isinstance(products, list):
-            return "Error: Product list is missing or invalid in API response."
+            products = [item for item in products if float(item.get("price", 0)) <= float(max_price)]
 
         if sort_by == "price":
             products.sort(
@@ -91,11 +96,12 @@ def search_products(
                 reverse=(order == "desc"),
             )
 
-        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        total_found = len(products)
+        products = products[:requested_limit]
         return json.dumps({
-            "total_found": meta.get("total", payload.get("total", payload.get("total_found", len(products)))),
-            "current_page": meta.get("current_page", payload.get("current_page", page)),
-            "last_page": meta.get("last_page", payload.get("last_page", page)),
+            "total_found": total_found,
+            "current_page": page,
+            "last_page": last_page,
             "products": products,
         }, ensure_ascii=False)
     except (requests.RequestException, ValueError, TypeError) as error:

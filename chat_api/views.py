@@ -25,16 +25,62 @@ def _error(message, status):
 
 
 def _plain_text(text):
-    """Remove common Markdown formatting before returning text to the chat UI."""
-    text = re.sub(r"```[\s\S]*?```", lambda m: m.group(0).strip("`").strip(), text)
+    """Convert common Markdown constructs to readable plain text."""
+    text = str(text or "")
+    text = re.sub(r"```[^\n]*\n([\s\S]*?)```", r"\1", text)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1 (\2)", text)
     text = re.sub(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\|", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\|\s*$", "", text, flags=re.MULTILINE)
     text = text.replace("|", " — ")
-    text = re.sub(r"\*\*(.*?)\*\*|__(.*?)__", lambda m: m.group(1) or m.group(2), text)
+    text = re.sub(r"\*\*(.*?)\*\*|__(.*?)__|~~(.*?)~~", lambda m: next(group for group in m.groups() if group is not None), text)
     text = re.sub(r"(?<!\*)\*([^*\n]+)\*|(?<!_)_([^_\n]+)_", lambda m: m.group(1) or m.group(2), text)
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*>\s?", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*[-+*]\s+", "• ", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*\d+[.)]\s+", "• ", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _format_catalog_answer(tool_result):
+    """Build product answers only from the catalog payload, never model-invented facts."""
+    try:
+        payload = json.loads(tool_result)
+    except (TypeError, json.JSONDecodeError):
+        return "در حال حاضر نتوانستم اطلاعات محصولات را از فروشگاه دریافت کنم."
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("products"), list):
+        return "در حال حاضر نتوانستم اطلاعات محصولات را از فروشگاه دریافت کنم."
+
+    products = payload["products"]
+    available = [
+        item for item in products
+        if isinstance(item, dict)
+        and int(item.get("stock", item.get("quantity", 0)) or 0) > 0
+    ]
+    if not available:
+        return "در حال حاضر محصول موجودی در نتایج فروشگاه پیدا نشد."
+
+    lines = ["این محصولاتِ موجود را در اطلاعات فروشگاه پیدا کردم:"]
+    for item in available:
+        title = str(item.get("title") or item.get("name") or "محصول بدون نام")
+        price = item.get("price")
+        stock = item.get("stock", item.get("quantity"))
+        category = item.get("category")
+        category_name = category.get("name") if isinstance(category, dict) else None
+        details = []
+        if price is not None:
+            details.append(f"قیمت: {price} تومان")
+        if stock is not None:
+            details.append(f"موجودی: {stock}")
+        if category_name:
+            details.append(f"دسته‌بندی: {category_name}")
+        suffix = "، ".join(details)
+        lines.append(f"{title}" + (f"؛ {suffix}" if suffix else ""))
+    return "\n".join(lines)
 
 
 @csrf_exempt
@@ -142,6 +188,7 @@ async def chat_completions_view(request):
     ai_response_text = ""
     response_finish_reason = "stop"
     product_tool_error = None
+    catalog_result = None
 
     try:
         while True:
@@ -149,8 +196,12 @@ async def chat_completions_view(request):
                 model=config.model_name,
                 messages=full_messages,
                 temperature=config.temperature,
-                tools=TOOLS_SCHEMA,
-                # Require an initial tool call; after its result, let the model answer normally.
+                tools=(
+                    [tool for tool in TOOLS_SCHEMA
+                     if tool["function"]["name"] == "search_products"]
+                    if tool_calls_executed == 0 else TOOLS_SCHEMA
+                ),
+                # Restrict the first tool turn to catalog search; let the model choose later tools afterward.
                 tool_choice="required" if tool_calls_executed == 0 else "auto",
                 max_tokens=1500,
             )
@@ -202,6 +253,8 @@ async def chat_completions_view(request):
 
                     if function_name in {"search_products", "recommend_products"} and str(tool_output).startswith("Error"):
                         product_tool_error = str(tool_output)
+                    elif function_name in {"search_products", "recommend_products"}:
+                        catalog_result = str(tool_output)
 
                     full_messages.append({
                         "role": "tool",
@@ -228,6 +281,9 @@ async def chat_completions_view(request):
         logger.error("Catalog tool failed: %s", product_tool_error)
         return _error("Product catalog is temporarily unavailable.", 502)
 
+    # Do not let the language model add fictional products, prices, warranties, or Markdown.
+    if catalog_result is not None:
+        ai_response_text = _format_catalog_answer(catalog_result)
     ai_response_text = _plain_text(ai_response_text)
 
     if ai_response_text:

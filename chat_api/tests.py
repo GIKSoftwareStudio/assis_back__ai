@@ -1,8 +1,9 @@
 import json
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase
 
-from .views import _format_catalog_answer, _plain_text
+from .views import _format_catalog_answer, _get_tool_calls, _plain_text
 
 
 class CatalogAnswerTests(SimpleTestCase):
@@ -24,6 +25,8 @@ class CatalogAnswerTests(SimpleTestCase):
         self.assertIn("کالا", result)
         self.assertIn("لینک (https://example.com)", result)
         self.assertIn("نقل‌قول", result)
+        self.assertNotIn("\n", result)
+        self.assertNotIn("•", result)
 
     def test_formats_only_products_from_catalog_and_omits_out_of_stock(self):
         result = _format_catalog_answer(json.dumps({
@@ -46,3 +49,10 @@ class CatalogAnswerTests(SimpleTestCase):
     def test_does_not_generate_products_for_invalid_tool_result(self):
         result = _format_catalog_answer("upstream error")
         self.assertEqual(result, "در حال حاضر نتوانستم اطلاعات محصولات را از فروشگاه دریافت کنم.")
+
+    def test_processes_tool_calls_even_if_provider_finish_reason_is_stop(self):
+        choice = SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(tool_calls=["catalog-call"]),
+        )
+        self.assertEqual(_get_tool_calls(choice), ["catalog-call"])

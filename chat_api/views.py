@@ -24,25 +24,31 @@ def _error(message, status):
     return JsonResponse({"error": message}, status=status)
 
 
+def _get_tool_calls(choice):
+    """Read calls independently of provider-specific finish_reason behavior."""
+    return getattr(choice.message, "tool_calls", None) or []
+
+
 def _plain_text(text):
-    """Convert common Markdown constructs to readable plain text."""
+    """Flatten Markdown-like model output into a simple human-readable paragraph."""
     text = str(text or "")
-    text = re.sub(r"```[^\n]*\n([\s\S]*?)```", r"\1", text)
+    text = re.sub(r"```([^\n]*)\n?([\s\S]*?)```", r"\2", text)
     text = re.sub(r"`([^`\n]+)`", r"\1", text)
     text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1 (\2)", text)
     text = re.sub(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*\|", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\|\s*$", "", text, flags=re.MULTILINE)
-    text = text.replace("|", " — ")
+    text = text.replace("|", ", ")
     text = re.sub(r"\*\*(.*?)\*\*|__(.*?)__|~~(.*?)~~", lambda m: next(group for group in m.groups() if group is not None), text)
     text = re.sub(r"(?<!\*)\*([^*\n]+)\*|(?<!_)_([^_\n]+)_", lambda m: m.group(1) or m.group(2), text)
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*>\s?", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*[-+*]\s+", "• ", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*\d+[.)]\s+", "• ", text, flags=re.MULTILINE)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    text = re.sub(r"^\s*[-+*]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+[.)]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n+", " ", text)
+    text = re.sub(r"\s+([،؛,.!?؟])", r"\1", text)
+    text = re.sub(r"([،؛,!؟])(?=\S)", r"\1 ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip(" ,؛")
 
 
 def _format_catalog_answer(tool_result):
@@ -214,8 +220,10 @@ async def chat_completions_view(request):
             response_message = choice.message
             response_finish_reason = choice.finish_reason or "stop"
 
-            tool_calls = response_message.tool_calls or []
-            if response_finish_reason == "tool_calls" and tool_calls:
+            tool_calls = _get_tool_calls(choice)
+            # Some OpenAI-compatible providers return tool_calls with finish_reason="stop".
+            # Presence of calls is the reliable signal; do not leak their prose as final output.
+            if tool_calls:
                 if tool_calls_executed + len(tool_calls) > MAX_TOOL_CALLS:
                     ai_response_text = "درخواست به تعداد مجاز عملیات نرسید و متوقف شد."
                     response_finish_reason = "length"

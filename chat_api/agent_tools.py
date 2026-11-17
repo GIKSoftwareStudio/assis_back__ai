@@ -132,8 +132,8 @@ def get_product_details(product_id: int) -> str:
 
 
 def recommend_products(
-    query: str,
-    max_price: float,
+    query: str = None,
+    max_price: float = None,
     category_id: int = None,
     limit: int = 5,
     page: int = 1,
@@ -212,7 +212,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search store products by text, category, price range, and page.",
+            "description": "Use only when the customer asks about products sold by this store, wants to find/compare/recommend products, or asks for this store's prices, availability, or category. Do not call for greetings, thanks, small talk, or unrelated/general questions. Search by text, category, price range, and page. If the customer asks for any/all products within a stated budget, search without a query or category and apply max_price.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -245,7 +245,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "recommend_products",
-            "description": "Find store products matching the query and maximum price; return available items when stock data is present.",
+            "description": "Find available store products matching the request and maximum price. A query or category is optional when the customer explicitly asks for any/all products within a stated budget.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -255,7 +255,7 @@ TOOLS_SCHEMA = [
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                     "page": {"type": "integer", "minimum": 1},
                 },
-                "required": ["query", "max_price"],
+                "required": ["max_price"],
             },
         },
     },

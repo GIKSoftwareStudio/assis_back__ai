@@ -3,7 +3,14 @@ from types import SimpleNamespace
 
 from django.test import SimpleTestCase
 
-from .views import _format_catalog_answer, _get_tool_calls, _plain_text
+from .views import (
+    _clarification_message,
+    _format_catalog_answer,
+    _format_categories_answer,
+    _get_tool_calls,
+    _missing_product_details,
+    _plain_text,
+)
 
 
 class CatalogAnswerTests(SimpleTestCase):
@@ -37,10 +44,17 @@ class CatalogAnswerTests(SimpleTestCase):
         }))
 
         self.assertIn("محصول واقعی", result)
-        self.assertIn("350000 تومان", result)
+        self.assertIn("350000", result)
+        self.assertIn("تومان", result)
         self.assertNotIn("ناموجود", result)
         self.assertNotIn("|", result)
         self.assertNotIn("**", result)
+        self.assertEqual(len(result.splitlines()), 2)
+        self.assertTrue(result.splitlines()[0].startswith("\u200f"))
+        self.assertIn("\u2066محصول واقعی\u2069", result)
+        self.assertIn("\u2066125000\u2069", _format_catalog_answer(json.dumps({
+            "products": [{"title": "Product-1", "price": 125000, "stock": 2}]
+        })))
 
     def test_returns_no_matches_message_for_empty_catalog_results(self):
         result = _format_catalog_answer('{"products": []}')
@@ -56,3 +70,28 @@ class CatalogAnswerTests(SimpleTestCase):
             message=SimpleNamespace(tool_calls=["catalog-call"]),
         )
         self.assertEqual(_get_tool_calls(choice), ["catalog-call"])
+
+    def test_recommendation_requires_product_scope_and_budget(self):
+        self.assertEqual(
+            _missing_product_details("recommend_products", {}),
+            ["نوع یا دسته‌بندی محصول", "حداکثر بودجه"],
+        )
+        self.assertEqual(
+            _missing_product_details("recommend_products", {"category_id": 2, "max_price": 600000}),
+            [],
+        )
+        self.assertEqual(
+            _missing_product_details("recommend_products", {"query": "هدفون", "max_price": None}),
+            ["حداکثر بودجه"],
+        )
+
+    def test_category_answer_uses_only_api_category_names(self):
+        result = _format_categories_answer('[{"id":2,"name":"صوتی"},{"id":3,"name":"جانبی"}]')
+        self.assertIn("صوتی", result)
+        self.assertIn("جانبی", result)
+        self.assertNotIn("محصول نمونه", result)
+
+    def test_clarification_is_plain_text(self):
+        result = _clarification_message(["نوع محصول", "حداکثر بودجه"])
+        self.assertIn("نوع محصول و حداکثر بودجه", result)
+        self.assertNotIn("*", result)
